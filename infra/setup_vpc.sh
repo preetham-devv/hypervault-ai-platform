@@ -1,5 +1,9 @@
 #!/bin/bash
 # ============================================================
+# For quick setup only. Production: use terraform/
+# See terraform/networking.tf for the production-grade equivalent
+# of this script (VPC, PSA, Serverless VPC connector, firewall rules).
+# ============================================================
 # VPC + Private Services Access for AlloyDB
 # ============================================================
 set -euo pipefail

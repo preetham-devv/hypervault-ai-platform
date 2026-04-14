@@ -16,7 +16,10 @@ build/
 htmlcov/
 .coverage
 *.tfstate*
+*.tfstate.backup
 .terraform/
+.terraform.lock.hcl
+terraform.tfvars
 *.pem
 *.key
 service-account-key.json

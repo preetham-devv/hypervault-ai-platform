@@ -1,5 +1,9 @@
 #!/bin/bash
 # ============================================================
+# For quick setup only. Production: use terraform/
+# To destroy production infrastructure run: terraform destroy
+# This script is only for resources provisioned by the infra/ shell scripts.
+# ============================================================
 # Teardown all resources to avoid billing
 # ============================================================
 set -euo pipefail

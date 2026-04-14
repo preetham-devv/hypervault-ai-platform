@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# For quick setup only. Production: use terraform/
+# See terraform/iam.tf for the production-grade IAM bindings that grant the
+# AlloyDB service agent roles/aiplatform.user (replaces the gcloud call below).
+#
 # infra/setup_vertex_ai.sh
 # Registers Gemini Flash and text-embedding models with AlloyDB's google_ml
 # integration so they can be called via google_ml.predict() and

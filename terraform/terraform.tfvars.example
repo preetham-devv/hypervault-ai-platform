@@ -1,0 +1,35 @@
+# =============================================================================
+# terraform.tfvars.example
+#
+# Copy to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored — never commit credentials.
+# =============================================================================
+
+# ── Required (no defaults) ────────────────────────────────────────────────────
+project_id  = "your-gcp-project-id"
+db_password = "change-me-use-a-strong-password"
+
+# Container image built by Cloud Build / deploy/cloudbuild.yaml
+cloud_run_image = "gcr.io/your-gcp-project-id/hypervault-ai-platform:latest"
+
+# ── Optional overrides (defaults shown) ───────────────────────────────────────
+region                 = "us-central1"
+vpc_network            = "hypervault-vpc"
+cluster_name           = "hypervault-cluster"
+instance_name          = "hypervault-primary"
+db_name                = "hr_platform"
+cloud_run_service_name = "hypervault-ai-platform"
+
+# Scale up for production workloads
+alloydb_cpu_count       = 4
+cloud_run_min_instances = 1       # Avoid cold starts in prod
+cloud_run_max_instances = 10
+cloud_run_memory        = "2Gi"
+cloud_run_cpu           = "2"
+
+# Vertex AI model IDs (must match what's registered in AlloyDB google_ml)
+vertex_ai_model        = "gemini-2.0-flash-001"
+vertex_embedding_model = "text-embedding-005"
+
+# Terraform state bucket (for documentation — passed via -backend-config at init)
+tf_state_bucket = "your-project-tf-state"

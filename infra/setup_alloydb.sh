@@ -1,5 +1,9 @@
 #!/bin/bash
 # ============================================================
+# For quick setup only. Production: use terraform/
+# See terraform/alloydb.tf and terraform/networking.tf for the
+# production-grade equivalent of this script.
+# ============================================================
 # Provision AlloyDB cluster + instance with Vertex AI integration
 # ============================================================
 set -euo pipefail
