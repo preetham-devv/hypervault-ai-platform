@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status
 
 from src.api.dependencies import CurrentUser, DBEngine
+from src.api.error_handlers import HyperVaultError
 from src.api.schemas import CustomAnalysisRequest, ReasoningResponse
 from src.reasoning_engine.realtime_pipeline import RealtimePipeline
 
@@ -54,6 +55,8 @@ def department_summary(
     """
     try:
         result = _pipeline(engine).get_department_summary(active_user=user)
+    except HyperVaultError:
+        raise  # propagate to registered exception handlers
     except Exception as exc:
         logger.exception("department_summary failed", user=user)
         raise HTTPException(
@@ -83,6 +86,8 @@ def employee_insights(
     """
     try:
         result = _pipeline(engine).get_employee_insights(active_user=user)
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("employee_insights failed", user=user)
         raise HTTPException(
@@ -121,6 +126,8 @@ def custom_analysis(
             question=body.question,
             active_user=user,
         )
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("custom_analysis failed", user=user, sql_preview=body.sql[:80])
         raise HTTPException(

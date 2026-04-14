@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status
 
 from src.api.dependencies import CurrentUser, DBEngine
+from src.api.error_handlers import HyperVaultError
 from src.api.schemas import SearchRequest, SearchResponse
 from src.vector_engine.vector_search import VectorSearch
 
@@ -50,6 +51,8 @@ def search_employees(
             top_k=body.top_k,
             active_user=user,
         )
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("search_employees failed", query_preview=body.query[:60], user=user)
         raise HTTPException(
@@ -85,6 +88,8 @@ def search_reviews(
             top_k=body.top_k,
             active_user=user,
         )
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("search_reviews failed", query_preview=body.query[:60], user=user)
         raise HTTPException(

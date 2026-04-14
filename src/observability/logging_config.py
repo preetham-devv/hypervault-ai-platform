@@ -93,13 +93,13 @@ def configure_logging(force: bool = False) -> None:
         final_renderer = structlog.dev.ConsoleRenderer(colors=True)
 
     # ── Configure structlog ─────────────────────────────────────────────────
+    # IMPORTANT: remove_processors_meta must NOT appear here.
+    # It deletes the '_record' key that the stdlib bridge injects into event
+    # dicts. Native structlog events never have '_record', so adding it here
+    # would raise KeyError on every native log call. It belongs exclusively in
+    # the ProcessorFormatter.processors list below (stdlib bridge only).
     structlog.configure(
-        processors=_SHARED_PROCESSORS + [
-            # Remove the _record and _from_structlog keys injected by the
-            # stdlib bridge before the final renderer sees them.
-            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-            final_renderer,
-        ],
+        processors=_SHARED_PROCESSORS + [final_renderer],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,

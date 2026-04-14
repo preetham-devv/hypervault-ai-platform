@@ -22,6 +22,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.error_handlers import register_error_handlers
 from src.api.routers import reasoning, search, security, sustainability
 from src.api.schemas import HealthResponse
 from src.config import get_engine
@@ -137,6 +138,9 @@ app.add_middleware(
 # Bind a UUID request_id to every structlog event for the lifetime of each
 # request, and echo it back in the X-Request-ID response header.
 app.add_middleware(RequestIDMiddleware)
+
+# Register domain exception → HTTP status code mappings.
+register_error_handlers(app)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 _API_PREFIX = "/api/v1"

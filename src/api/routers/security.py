@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 
 from src.api.dependencies import CurrentUser, DBEngine, VALID_USERS
+from src.api.error_handlers import HyperVaultError
 from src.api.schemas import SecurityCompareResponse, SecurityMyViewResponse
 from src.security.secure_query import SecureQueryExecutor
 
@@ -57,6 +58,8 @@ def compare_access(
     try:
         executor = SecureQueryExecutor(engine)
         comparison = executor.compare_access(sql, list(VALID_USERS))
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("compare_access failed", user=user)
         raise HTTPException(
@@ -88,6 +91,8 @@ def my_view(
     """Return the rows visible to the calling user for the given *sql*."""
     try:
         rows = SecureQueryExecutor(engine).query(sql, user=user)
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("my_view failed", user=user)
         raise HTTPException(

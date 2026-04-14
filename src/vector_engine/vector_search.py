@@ -4,9 +4,13 @@ Queries are embedded on-the-fly and matched against pre-computed vectors.
 """
 
 from typing import Optional
+
 import sqlalchemy
+import sqlalchemy.exc
 import structlog
 from sqlalchemy import text
+
+from src.api.error_handlers import VectorSearchError
 from src.config import get_engine
 from src.security.secure_connection import SecureConnection
 
@@ -24,6 +28,14 @@ class VectorSearch:
 
     The ``<=>`` operator is AlloyDB's cosine distance operator for pgvector.
     Similarity score = ``1 - cosine_distance`` (range 0–1, higher is closer).
+
+    Raises
+    ------
+    VectorSearchError
+        On any database error during a search, including:
+          - ``embeddings_missing=True`` when the ``embedding`` column does not
+            yet exist or all rows have NULL embeddings (run seed_data.sql).
+          - Connection drops or query timeouts.
     """
 
     def __init__(self, engine: sqlalchemy.engine.Engine = None):
@@ -36,8 +48,12 @@ class VectorSearch:
         """
         self.engine = engine or get_engine()
 
-    def search_employees(self, query: str, top_k: int = 10,
-                         active_user: Optional[str] = None) -> list[dict]:
+    def search_employees(
+        self,
+        query: str,
+        top_k: int = 10,
+        active_user: Optional[str] = None,
+    ) -> list[dict]:
         """
         Find the *top_k* employees whose profile embedding is closest to *query*.
 
@@ -73,15 +89,40 @@ class VectorSearch:
             )::vector
             LIMIT :top_k;
         """)
-        with SecureConnection(self.engine, active_user) as conn:
-            result = conn.execute(sql, {"query": query, "top_k": top_k})
-            cols = list(result.keys())
-            rows = [dict(zip(cols, r)) for r in result.fetchall()]
-        logger.info("Vector search complete", query_preview=query[:40], result_count=len(rows))
+        try:
+            with SecureConnection(self.engine, active_user) as conn:
+                result = conn.execute(sql, {"query": query, "top_k": top_k})
+                cols = list(result.keys())
+                rows = [dict(zip(cols, r)) for r in result.fetchall()]
+        except sqlalchemy.exc.ProgrammingError as exc:
+            raise _programming_error(exc, table="employees", query=query) from exc
+        except sqlalchemy.exc.OperationalError as exc:
+            raise VectorSearchError(
+                f"Database connection error during employee search: {exc}",
+                table="employees",
+                query_preview=query[:60],
+            ) from exc
+        except sqlalchemy.exc.SQLAlchemyError as exc:
+            raise VectorSearchError(
+                f"Employee search failed: {exc}",
+                table="employees",
+                query_preview=query[:60],
+            ) from exc
+
+        logger.info(
+            "Vector search complete",
+            table="employees",
+            query_preview=query[:40],
+            result_count=len(rows),
+        )
         return rows
 
-    def search_reviews(self, query: str, top_k: int = 10,
-                       active_user: Optional[str] = None) -> list[dict]:
+    def search_reviews(
+        self,
+        query: str,
+        top_k: int = 10,
+        active_user: Optional[str] = None,
+    ) -> list[dict]:
         """
         Find the *top_k* performance reviews semantically closest to *query*.
 
@@ -117,10 +158,33 @@ class VectorSearch:
             )::vector
             LIMIT :top_k;
         """)
-        with SecureConnection(self.engine, active_user) as conn:
-            result = conn.execute(sql, {"query": query, "top_k": top_k})
-            cols = list(result.keys())
-            return [dict(zip(cols, r)) for r in result.fetchall()]
+        try:
+            with SecureConnection(self.engine, active_user) as conn:
+                result = conn.execute(sql, {"query": query, "top_k": top_k})
+                cols = list(result.keys())
+                rows = [dict(zip(cols, r)) for r in result.fetchall()]
+        except sqlalchemy.exc.ProgrammingError as exc:
+            raise _programming_error(exc, table="performance_reviews", query=query) from exc
+        except sqlalchemy.exc.OperationalError as exc:
+            raise VectorSearchError(
+                f"Database connection error during review search: {exc}",
+                table="performance_reviews",
+                query_preview=query[:60],
+            ) from exc
+        except sqlalchemy.exc.SQLAlchemyError as exc:
+            raise VectorSearchError(
+                f"Review search failed: {exc}",
+                table="performance_reviews",
+                query_preview=query[:60],
+            ) from exc
+
+        logger.info(
+            "Vector search complete",
+            table="performance_reviews",
+            query_preview=query[:40],
+            result_count=len(rows),
+        )
+        return rows
 
     def get_embedding_stats(self) -> list[dict]:
         """
@@ -143,6 +207,45 @@ class VectorSearch:
             SELECT 'performance_reviews', COUNT(*), COUNT(embedding)
             FROM performance_reviews;
         """)
-        with self.engine.connect() as conn:
-            result = conn.execute(sql)
-            return [dict(zip(result.keys(), r)) for r in result.fetchall()]
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(sql)
+                return [dict(zip(result.keys(), r)) for r in result.fetchall()]
+        except sqlalchemy.exc.ProgrammingError as exc:
+            raise _programming_error(exc, table="employees/performance_reviews", query="") from exc
+        except sqlalchemy.exc.SQLAlchemyError as exc:
+            raise VectorSearchError(
+                f"Embedding stats query failed: {exc}",
+                table="employees/performance_reviews",
+            ) from exc
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+def _programming_error(
+    exc: sqlalchemy.exc.ProgrammingError,
+    table: str,
+    query: str,
+) -> VectorSearchError:
+    """
+    Convert a SQLAlchemy ProgrammingError into a VectorSearchError.
+
+    Detects the "column embedding does not exist" pattern and sets
+    ``embeddings_missing=True`` so callers can surface a helpful message
+    rather than a raw SQL error.
+    """
+    msg = str(exc).lower()
+    embeddings_missing = "does not exist" in msg and "embedding" in msg
+    if embeddings_missing:
+        return VectorSearchError(
+            f"Embeddings not yet generated for '{table}' — "
+            "run infra/seed_data.sql to populate the embedding column",
+            table=table,
+            query_preview=query[:60],
+            embeddings_missing=True,
+        )
+    return VectorSearchError(
+        f"SQL error during vector search on '{table}': {exc}",
+        table=table,
+        query_preview=query[:60],
+    )

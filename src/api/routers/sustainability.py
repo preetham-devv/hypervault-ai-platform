@@ -13,6 +13,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status
 
 from src.api.dependencies import CurrentUser, DBEngine
+from src.api.error_handlers import HyperVaultError
 from src.api.schemas import (
     SustainabilityAnalyzeRequest,
     SustainabilityAnalyzeResponse,
@@ -51,6 +52,8 @@ def get_metrics(
     logger.info("get_metrics requested", user=user)
     try:
         rows = SecureQueryExecutor(engine).query(_METRICS_SQL, user=_METRICS_USER)
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("get_metrics failed", user=user)
         raise HTTPException(
@@ -84,6 +87,8 @@ def analyze_sustainability(
     logger.info("analyze_sustainability called", data_points=len(body.metrics), user=user)
     try:
         analysis = SustainabilityAnalyzer().analyze_carbon_footprint(body.metrics)
+    except HyperVaultError:
+        raise
     except Exception as exc:
         logger.exception("analyze_sustainability failed", user=user)
         raise HTTPException(

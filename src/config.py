@@ -55,6 +55,11 @@ class Config:
     APP_ENV             = os.getenv("APP_ENV", "development")
     LOG_LEVEL           = os.getenv("LOG_LEVEL", "INFO")
 
+    # ── Connection timeouts ──
+    # Seconds to wait when establishing a new database connection.
+    # Applies to both the direct TCP path and the Cloud SQL Connector path.
+    DB_CONNECT_TIMEOUT  = int(os.getenv("DB_CONNECT_TIMEOUT", "30"))
+
 
 # Module-level singleton — reused across all connection factory calls.
 _connector = None
@@ -73,7 +78,8 @@ def _alloydb_getconn() -> pg8000.dbapi.Connection:
     Open a connection through the Cloud SQL Python Connector.
 
     Credentials are sourced from Application Default Credentials — no password
-    is embedded in the connection string.
+    is embedded in the connection string. The ``timeout`` kwarg is forwarded
+    to pg8000 by the Connector.
     """
     return _get_connector().connect(
         instance_uri=Config.ALLOYDB_CONN_NAME,
@@ -81,6 +87,7 @@ def _alloydb_getconn() -> pg8000.dbapi.Connection:
         user=Config.ALLOYDB_USER,
         password=Config.ALLOYDB_PASSWORD,
         db=Config.ALLOYDB_DATABASE,
+        timeout=Config.DB_CONNECT_TIMEOUT,
     )
 
 
@@ -89,12 +96,13 @@ def _direct_getconn() -> pg8000.dbapi.Connection:
     Open a direct TCP connection to AlloyDB.
 
     Used in local development when ALLOYDB_IP is set and no Cloud SQL
-    Connector URI is configured.
+    Connector URI is configured. ``timeout`` is passed directly to pg8000.
     """
     return pg8000.connect(
         host=Config.ALLOYDB_IP, port=5432,
         user=Config.ALLOYDB_USER, password=Config.ALLOYDB_PASSWORD,
         database=Config.ALLOYDB_DATABASE,
+        timeout=Config.DB_CONNECT_TIMEOUT,
     )
 
 
@@ -123,15 +131,18 @@ def get_engine() -> sqlalchemy.engine.Engine:
     )
 
     # Prefer the connector path (IAM-auth, no IP whitelisting required).
+    # The connector's creator function handles its own timeout internally.
     if Config.ALLOYDB_CONN_NAME:
         engine = sqlalchemy.create_engine(
             "postgresql+pg8000://", creator=_alloydb_getconn, **_pool_kwargs
         )
     else:
         # Fallback: direct TCP for local dev / VPN environments.
+        # connect_args passes timeout directly to pg8000 for each new connection.
         engine = sqlalchemy.create_engine(
             f"postgresql+pg8000://{Config.ALLOYDB_USER}:{Config.ALLOYDB_PASSWORD}"
             f"@{Config.ALLOYDB_IP}:5432/{Config.ALLOYDB_DATABASE}",
+            connect_args={"timeout": Config.DB_CONNECT_TIMEOUT},
             **_pool_kwargs,
         )
 
