@@ -11,7 +11,7 @@ Routes:
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -19,7 +19,7 @@ from src.api.dependencies import CurrentUser, DBEngine, VALID_USERS
 from src.api.schemas import SecurityCompareResponse, SecurityMyViewResponse
 from src.security.secure_query import SecureQueryExecutor
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/security", tags=["Security"])
 
@@ -53,12 +53,12 @@ def compare_access(
     the comparison — the whole point is to show ALL users' views side-by-side.
     Each user's query runs in its own connection so RLS contexts don't bleed.
     """
-    logger.info("compare_access triggered by user=%s", user)
+    logger.info("compare_access triggered", user=user)
     try:
         executor = SecureQueryExecutor(engine)
         comparison = executor.compare_access(sql, list(VALID_USERS))
     except Exception as exc:
-        logger.exception("compare_access failed")
+        logger.exception("compare_access failed", user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"RLS comparison error: {exc}",
@@ -89,7 +89,7 @@ def my_view(
     try:
         rows = SecureQueryExecutor(engine).query(sql, user=user)
     except Exception as exc:
-        logger.exception("my_view failed for user=%s", user)
+        logger.exception("my_view failed", user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Query error: {exc}",

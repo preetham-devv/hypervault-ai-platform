@@ -3,14 +3,14 @@ Secure Query — executes SQL within an RLS-enforced context.
 The same SELECT * returns different rows depending on who is logged in.
 """
 
-import logging
 from typing import Any, Optional
 import sqlalchemy
+import structlog
 from sqlalchemy import text
 from src.config import get_engine
 from src.security.secure_connection import SecureConnection
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class SecureQueryExecutor:
@@ -57,7 +57,7 @@ class SecureQueryExecutor:
             result = conn.execute(text(sql), params or {})
             cols = list(result.keys())
             rows = [dict(zip(cols, r)) for r in result.fetchall()]
-        logger.info("Secure query → %d rows (user=%s)", len(rows), user or "system")
+        logger.info("Secure query complete", row_count=len(rows), user=user or "system")
         return rows
 
     def execute(self, sql: str, params: dict = None, user: str = None) -> int:
@@ -108,5 +108,5 @@ class SecureQueryExecutor:
         results = {}
         for u in users:
             results[u] = self.query(sql, user=u)
-            logger.info("User '%s' → %d rows", u, len(results[u]))
+            logger.info("User row count", user=u, row_count=len(results[u]))
         return results

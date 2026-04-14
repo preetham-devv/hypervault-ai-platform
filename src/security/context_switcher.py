@@ -4,11 +4,11 @@ drives Row-Level Security. Before every query we SET app.active_user
 to the logged-in identity. RLS policies read this to filter rows.
 """
 
-import logging
+import structlog
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def set_user_context(conn: Connection, username: str) -> None:
@@ -39,7 +39,7 @@ def set_user_context(conn: Connection, username: str) -> None:
     # Strip non-alphanumeric characters to neutralise SQL injection via the SET command.
     sanitized = "".join(c for c in username if c.isalnum() or c == "_")
     conn.execute(text("SET app.active_user = :u"), {"u": sanitized})
-    logger.debug("RLS context → app.active_user = '%s'", sanitized)
+    logger.debug("RLS context set", active_user=sanitized)
 
 
 def get_user_context(conn: Connection) -> str:

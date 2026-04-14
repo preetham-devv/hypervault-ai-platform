@@ -12,7 +12,7 @@ Routes:
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -20,7 +20,7 @@ from src.api.dependencies import CurrentUser, DBEngine
 from src.api.schemas import SearchRequest, SearchResponse
 from src.vector_engine.vector_search import VectorSearch
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
@@ -51,7 +51,7 @@ def search_employees(
             active_user=user,
         )
     except Exception as exc:
-        logger.exception("search_employees failed query=%r user=%s", body.query[:60], user)
+        logger.exception("search_employees failed", query_preview=body.query[:60], user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Vector search error: {exc}",
@@ -86,7 +86,7 @@ def search_reviews(
             active_user=user,
         )
     except Exception as exc:
-        logger.exception("search_reviews failed query=%r user=%s", body.query[:60], user)
+        logger.exception("search_reviews failed", query_preview=body.query[:60], user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Vector search error: {exc}",

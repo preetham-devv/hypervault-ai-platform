@@ -12,7 +12,7 @@ Routes:
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -20,7 +20,7 @@ from src.api.dependencies import CurrentUser, DBEngine
 from src.api.schemas import CustomAnalysisRequest, ReasoningResponse
 from src.reasoning_engine.realtime_pipeline import RealtimePipeline
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/reasoning", tags=["Reasoning"])
 
@@ -55,7 +55,7 @@ def department_summary(
     try:
         result = _pipeline(engine).get_department_summary(active_user=user)
     except Exception as exc:
-        logger.exception("department_summary failed for user=%s", user)
+        logger.exception("department_summary failed", user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Upstream error from AlloyDB/Gemini: {exc}",
@@ -84,7 +84,7 @@ def employee_insights(
     try:
         result = _pipeline(engine).get_employee_insights(active_user=user)
     except Exception as exc:
-        logger.exception("employee_insights failed for user=%s", user)
+        logger.exception("employee_insights failed", user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Upstream error from AlloyDB/Gemini: {exc}",
@@ -122,7 +122,7 @@ def custom_analysis(
             active_user=user,
         )
     except Exception as exc:
-        logger.exception("custom_analysis failed for user=%s sql=%r", user, body.sql[:80])
+        logger.exception("custom_analysis failed", user=user, sql_preview=body.sql[:80])
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Upstream error from AlloyDB/Gemini: {exc}",

@@ -3,14 +3,14 @@ Vector search — cosine similarity against AlloyDB embeddings.
 Queries are embedded on-the-fly and matched against pre-computed vectors.
 """
 
-import logging
 from typing import Optional
 import sqlalchemy
+import structlog
 from sqlalchemy import text
 from src.config import get_engine
 from src.security.secure_connection import SecureConnection
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class VectorSearch:
@@ -77,7 +77,7 @@ class VectorSearch:
             result = conn.execute(sql, {"query": query, "top_k": top_k})
             cols = list(result.keys())
             rows = [dict(zip(cols, r)) for r in result.fetchall()]
-        logger.info("Vector search: '%s' → %d results", query[:40], len(rows))
+        logger.info("Vector search complete", query_preview=query[:40], result_count=len(rows))
         return rows
 
     def search_reviews(self, query: str, top_k: int = 10,

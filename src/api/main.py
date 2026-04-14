@@ -2,9 +2,11 @@
 HyperVault AI Platform — FastAPI application entry point.
 
 Startup sequence (lifespan):
-  1. Create the SQLAlchemy engine (validates connectivity to AlloyDB).
-  2. Store it on app.state so dependencies can retrieve it without globals.
-  3. On shutdown: dispose the engine to release all pooled connections cleanly.
+  1. configure_logging()    — structlog JSON/console setup
+  2. get_engine()           — SQLAlchemy pool, AlloyDB smoke-test
+  3. setup_tracing(engine)  — OTel TracerProvider + SQLAlchemy instrumentation
+  4. setup_metrics()        — OTel MeterProvider + instrument registration
+  5. FastAPIInstrumentor    — auto-instrument every endpoint with trace spans
 
 Exposed at :8080 (Cloud Run ingress port).
 Streamlit dashboard runs at :8501 and calls this API via localhost.
@@ -12,19 +14,25 @@ Streamlit dashboard runs at :8501 and calls this API via localhost.
 
 from __future__ import annotations
 
-import logging
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routers import reasoning, search, security, sustainability
 from src.api.schemas import HealthResponse
 from src.config import get_engine
+from src.observability.logging_config import configure_logging, RequestIDMiddleware
+from src.observability.tracing import setup_tracing
+from src.observability.metrics import setup_metrics
 
-logger = logging.getLogger(__name__)
+# Logging must be configured before the first log call so that the stdlib
+# bridge is in place when uvicorn emits its startup messages.
+configure_logging()
+logger = structlog.get_logger(__name__)
 
 # Version is read from the environment so Cloud Build can inject it at build
 # time without modifying source files.
@@ -48,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
       - Calls ``engine.dispose()`` to close all pooled connections gracefully,
         preventing "too many clients" errors in AlloyDB after a rolling deploy.
     """
-    logger.info("HyperVault API starting up — version=%s", _VERSION)
+    logger.info("HyperVault API starting up", version=_VERSION)
     engine = get_engine()
 
     # Smoke-test the connection so a misconfigured .env fails fast at startup
@@ -59,9 +67,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("AlloyDB connectivity verified")
     except Exception as exc:
         # Log the error but don't crash — health check will surface it.
-        logger.error("AlloyDB connectivity check failed: %s", exc)
+        logger.error("AlloyDB connectivity check failed", error=str(exc))
 
     app.state.engine = engine
+
+    # Tracing must be set up after the engine exists so SQLAlchemy
+    # instrumentation can be attached in the same call.
+    setup_tracing(engine)
+    setup_metrics()
+
+    # Auto-instrument all FastAPI endpoints — must be called after app is
+    # created but before the first request is served.
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import]
+        FastAPIInstrumentor.instrument_app(app)
+        logger.info("OTel: FastAPI instrumentation enabled")
+    except ImportError:
+        logger.warning(
+            "opentelemetry-instrumentation-fastapi not installed — "
+            "endpoint spans will not be emitted"
+        )
 
     yield  # Application is running
 
@@ -108,6 +133,10 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Bind a UUID request_id to every structlog event for the lifetime of each
+# request, and echo it back in the X-Request-ID response header.
+app.add_middleware(RequestIDMiddleware)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 _API_PREFIX = "/api/v1"

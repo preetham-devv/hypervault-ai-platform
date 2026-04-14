@@ -9,15 +9,15 @@ Connection strategy:
     (useful for local development with a VPN or Cloud SQL Auth Proxy).
 """
 
-import logging
 import os
+import structlog
 from dotenv import load_dotenv
 from google.cloud.alloydb.connector import Connector
 import sqlalchemy
 from sqlalchemy import event
 import pg8000
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.get_logger(__name__)
 
 load_dotenv()
 
@@ -162,8 +162,7 @@ def get_engine() -> sqlalchemy.engine.Engine:
             _logger.debug("pool checkin: app.active_user cleared")
         except Exception:
             _logger.warning(
-                "pool checkin: failed to reset app.active_user — "
-                "rolling back to keep connection clean",
+                "pool checkin: failed to reset app.active_user — rolling back to keep connection clean",
                 exc_info=True,
             )
             try:

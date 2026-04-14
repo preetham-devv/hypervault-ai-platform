@@ -9,16 +9,16 @@ Architecture:
   Streamlit (:8501) → httpx → FastAPI (:8080) → AlloyDB / Vertex AI
 """
 
-import logging
-
 import httpx
 import pandas as pd
 import streamlit as st
+import structlog
 
 from src.config import Config
+from src.observability.logging_config import configure_logging
 
-logging.basicConfig(level=Config.LOG_LEVEL)
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = structlog.get_logger(__name__)
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(

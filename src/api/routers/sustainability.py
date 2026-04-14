@@ -8,7 +8,7 @@ Routes:
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -21,7 +21,7 @@ from src.api.schemas import (
 from src.reasoning_engine.sustainability_analyzer import SustainabilityAnalyzer
 from src.security.secure_query import SecureQueryExecutor
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/sustainability", tags=["Sustainability"])
 
@@ -48,11 +48,11 @@ def get_metrics(
     user: CurrentUser,  # authenticated but not used for RLS on this table
 ) -> SustainabilityMetricsResponse:
     """Fetch all sustainability metrics — caller must be authenticated."""
-    logger.info("get_metrics requested by user=%s", user)
+    logger.info("get_metrics requested", user=user)
     try:
         rows = SecureQueryExecutor(engine).query(_METRICS_SQL, user=_METRICS_USER)
     except Exception as exc:
-        logger.exception("get_metrics failed")
+        logger.exception("get_metrics failed", user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Database error: {exc}",
@@ -81,11 +81,11 @@ def analyze_sustainability(
     The engine is not needed here — the analyzer calls Vertex AI directly,
     not AlloyDB. Data has already been fetched by GET /metrics.
     """
-    logger.info("analyze_sustainability: %d data points, user=%s", len(body.metrics), user)
+    logger.info("analyze_sustainability called", data_points=len(body.metrics), user=user)
     try:
         analysis = SustainabilityAnalyzer().analyze_carbon_footprint(body.metrics)
     except Exception as exc:
-        logger.exception("analyze_sustainability failed for user=%s", user)
+        logger.exception("analyze_sustainability failed", user=user)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Gemini analysis error: {exc}",

@@ -18,7 +18,7 @@ Two-layer defence:
 
 from __future__ import annotations
 
-import logging
+import structlog
 from types import TracebackType
 from typing import Optional, Type
 
@@ -27,7 +27,7 @@ from sqlalchemy.engine import Connection, Engine
 
 from src.security.context_switcher import clear_user_context, set_user_context
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class SecureConnection:
@@ -103,9 +103,8 @@ class SecureConnection:
                 # Log at WARNING so it surfaces in monitoring without killing
                 # the request or hiding the upstream exception (exc_type).
                 logger.warning(
-                    "Failed to clear RLS context for user='%s'; "
-                    "pool checkin event will attempt a second clear.",
-                    self._username,
+                    "Failed to clear RLS context — pool checkin event will attempt a second clear",
+                    username=self._username,
                     exc_info=True,
                 )
             finally:

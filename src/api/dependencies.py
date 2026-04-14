@@ -14,7 +14,7 @@ needs to change.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
@@ -22,7 +22,7 @@ from sqlalchemy.engine import Engine
 
 from src.config import get_engine
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # ── Known demo users ────────────────────────────────────────────────────────
 # Mirrors the USERS dict in app.py. Centralised here so the API validates
@@ -79,14 +79,14 @@ def get_current_user(
     if x_user_identity is None:
         # No header supplied — use a high-privilege default for backwards
         # compatibility with health checks and internal tooling.
-        logger.debug("No X-User-Identity header — defaulting to '%s'", SYSTEM_USER)
+        logger.debug("No X-User-Identity header — defaulting to system user", default=SYSTEM_USER)
         return SYSTEM_USER
 
     # Sanitise: strip whitespace, lowercase for case-insensitive matching.
     user = x_user_identity.strip().lower()
 
     if user not in VALID_USERS:
-        logger.warning("Rejected unknown identity: '%s'", user)
+        logger.warning("Rejected unknown identity", identity=user)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=(

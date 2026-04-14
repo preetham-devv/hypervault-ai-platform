@@ -3,15 +3,15 @@ Real-time pipeline — AlloyDB data → Gemini → actionable insights.
 Every query runs inside a user's RLS security boundary.
 """
 
-import logging
 from typing import Any, Optional
 import sqlalchemy
+import structlog
 from sqlalchemy import text
 from src.config import get_engine
 from src.reasoning_engine.gemini_client import GeminiClient
 from src.security.secure_connection import SecureConnection
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class RealtimePipeline:
@@ -64,7 +64,7 @@ class RealtimePipeline:
             rows = [dict(zip(columns, row)) for row in result.fetchall()]
 
         data_context = self._format_data(columns, rows)
-        logger.info("Sending %d rows to Gemini (user=%s)", len(rows), active_user or "system")
+        logger.info("Sending rows to Gemini", row_count=len(rows), user=active_user or "system")
         insight = self.gemini.analyze_data(data_context, question)
 
         return {
