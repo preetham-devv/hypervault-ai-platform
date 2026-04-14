@@ -3,9 +3,14 @@ Benchmark suite — measures embedding generation throughput
 and vector search latency (p50/p95/p99).
 """
 
+from __future__ import annotations
+
 import time
+from typing import Any
+
 import structlog
 from sqlalchemy import text
+
 from src.config import get_engine
 
 logger = structlog.get_logger(__name__)
@@ -20,13 +25,17 @@ class VectorBenchmark:
     before promoting to production.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Connect to AlloyDB using environment config."""
         self.engine = get_engine()
 
-    def benchmark_search(self, query: str = "senior engineer python",
-                         table: str = "employees", top_k: int = 10,
-                         iterations: int = 50) -> dict:
+    def benchmark_search(
+        self,
+        query: str = "senior engineer python",
+        table: str = "employees",
+        top_k: int = 10,
+        iterations: int = 50,
+    ) -> dict[str, Any]:
         """
         Run *iterations* similarity searches and report latency percentiles.
 
@@ -85,7 +94,7 @@ class VectorBenchmark:
         logger.info("Benchmark results", **result)
         return result
 
-    def count_embeddings(self) -> dict:
+    def count_embeddings(self) -> dict[str, int]:
         """
         Return total and embedded row counts for both core tables.
 

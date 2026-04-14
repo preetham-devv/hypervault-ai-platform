@@ -38,7 +38,7 @@ class VectorSearch:
           - Connection drops or query timeouts.
     """
 
-    def __init__(self, engine: sqlalchemy.engine.Engine = None):
+    def __init__(self, engine: Optional[sqlalchemy.engine.Engine] = None) -> None:
         """
         Parameters
         ----------

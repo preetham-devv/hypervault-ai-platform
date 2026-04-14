@@ -1,0 +1,62 @@
+# ============================================================
+# HyperVault AI Platform — Development Dockerfile
+#
+# Differences from deploy/Dockerfile (production):
+#   - No source COPY: src/ is mounted as a volume at runtime
+#     so uvicorn --reload and Streamlit --server.runOnSave pick
+#     up file changes without rebuilding the image.
+#   - Runs as root (acceptable for local dev, not for production).
+#   - Includes dev tools: ruff, mypy, pytest, watchfiles.
+#   - No supervisord: each service (api / frontend) is started
+#     individually by docker-compose.yml.
+#   - postgresql-client included so `make db-shell` works from
+#     inside the api container if needed.
+#
+# The image is shared between the `api` and `frontend` services;
+# the entrypoint command differs per service in docker-compose.yml.
+# ============================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# ── System dependencies ───────────────────────────────────────────────────────
+# build-essential + libpq-dev: required by pg8000 / psycopg C extensions.
+# postgresql-client: provides psql for ad-hoc DB access inside the container.
+# curl: optional but useful for manual healthcheck probing in dev.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python runtime dependencies ───────────────────────────────────────────────
+# Installed first so Docker layer cache is not busted by source changes.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Development-only tools ────────────────────────────────────────────────────
+# watchfiles: required by uvicorn --reload to efficiently detect file changes.
+# ruff / mypy: linting and type-checking via `make lint`.
+# pytest / pytest-cov: test runner via `make test`.
+RUN pip install --no-cache-dir \
+    watchfiles==1.0.4 \
+    ruff==0.9.10 \
+    mypy==1.15.0 \
+    pytest==8.3.5 \
+    pytest-cov==6.0.0
+
+# ── Python path ───────────────────────────────────────────────────────────────
+# Ensure `import src.*` resolves from /app when running uvicorn or pytest.
+ENV PYTHONPATH=/app
+
+# ── Source is NOT copied here — mounted as a volume by docker-compose.yml ────
+# This means the image stays small and hot-reload works without rebuilds.
+
+# ── Ports ─────────────────────────────────────────────────────────────────────
+# Document the ports each service uses; actual binding is in docker-compose.yml.
+EXPOSE 8080 8501
+
+# ── Default command (overridden per service in docker-compose.yml) ────────────
+CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]

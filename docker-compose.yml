@@ -1,0 +1,130 @@
+# ============================================================
+# HyperVault AI Platform — Docker Compose (local development)
+#
+# Services:
+#   db        postgres 15 + pgvector, port 5432
+#   api       FastAPI with uvicorn --reload, port 8080
+#   frontend  Streamlit with --server.runOnSave true, port 8501
+#
+# Quick start:
+#   cp .env.local.example .env.local
+#   make dev
+#
+# Note: Gemini / Vertex AI calls require GOOGLE_CLOUD_PROJECT and
+#       valid ADC credentials in .env.local.  Vector search queries
+#       that call google_ml.embedding() also require AlloyDB — these
+#       endpoints will return errors locally, which is expected.
+# ============================================================
+
+services:
+
+  # ── Database ──────────────────────────────────────────────────────────────
+  db:
+    # pgvector/pgvector:pg15 ships with the pgvector extension pre-installed.
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       hr_platform
+      POSTGRES_USER:     postgres
+      # Development-only password — never use this value in production.
+      POSTGRES_PASSWORD: localdev
+    ports:
+      # Expose on the standard port so local psql / DBeaver / TablePlus work.
+      - "5432:5432"
+    volumes:
+      # Persist data across container restarts.
+      - db_data:/var/lib/postgresql/data
+      # Init scripts run in alphabetical order on first start only.
+      # 01: schema + RLS + app user   (local adaptation of create_tables.sql)
+      # 02: sample data               (identical to production seed)
+      - ./infra/docker-init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./infra/seed_data.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      # pg_isready returns 0 only when postgres is ready to accept connections
+      # on the target database — not just when the process has started.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hr_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # ── FastAPI ───────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    restart: unless-stopped
+    command: >
+      uvicorn src.api.main:app
+        --host 0.0.0.0
+        --port 8080
+        --reload
+        --reload-dir /app/src
+        --log-level debug
+    volumes:
+      # Mount source so --reload picks up edits without rebuilding the image.
+      - ./src:/app/src
+      - ./tests:/app/tests
+    ports:
+      - "8080:8080"
+    env_file:
+      # Copy .env.local.example → .env.local and fill in your values.
+      - .env.local
+    environment:
+      # These override any values in .env.local that may still point at
+      # a remote AlloyDB instance — always use the local db service here.
+      APP_ENV:       development
+      LOG_LEVEL:     DEBUG
+      ALLOYDB_IP:    db
+      # Tell the API to use direct TCP (no Cloud SQL Connector) locally.
+      ALLOYDB_CONNECTION_NAME: ""
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # Hit the FastAPI liveness endpoint using Python's stdlib so curl is
+      # not required inside the slim image.
+      test:
+        - "CMD-SHELL"
+        - >
+          python -c
+          "import urllib.request, sys;
+          urllib.request.urlopen('http://localhost:8080/health').read() or sys.exit(1)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ── Streamlit frontend ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    restart: unless-stopped
+    command: >
+      streamlit run src/app.py
+        --server.port 8501
+        --server.address 0.0.0.0
+        --server.runOnSave true
+        --server.headless true
+        --browser.gatherUsageStats false
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env.local
+    environment:
+      APP_ENV: development
+      # Streamlit calls FastAPI via the Docker Compose service name, not
+      # localhost (each container has its own network namespace).
+      API_BASE_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+
+# ── Named volumes ──────────────────────────────────────────────────────────
+volumes:
+  # Postgres data directory — survives `docker compose stop` but is wiped
+  # by `make clean` (docker compose down -v).
+  db_data:

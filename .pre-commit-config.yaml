@@ -1,0 +1,84 @@
+# ============================================================
+# HyperVault AI Platform — pre-commit hook configuration
+#
+# Install:
+#   pip install pre-commit
+#   pre-commit install        # wire into .git/hooks/pre-commit
+#   pre-commit install --hook-type commit-msg   # optional: commit message lint
+#
+# Run manually against all files:
+#   pre-commit run --all-files
+#
+# Skip a hook for one commit:
+#   SKIP=mypy git commit -m "wip"
+# ============================================================
+
+default_language_version:
+  python: python3.11
+
+repos:
+
+  # ── General file hygiene ────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Ensure every file ends with a newline.
+      - id: end-of-file-fixer
+        exclude: '^\.env'
+
+      # Strip trailing whitespace (excludes Markdown where trailing spaces mean <br>).
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+
+      # Catch accidental commits of large binary files.
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+      # Validate all YAML files (docker-compose, .pre-commit-config, etc.).
+      - id: check-yaml
+        args: [--unsafe]          # allow custom YAML tags used by docker-compose
+
+      # Detect accidentally committed private keys or tokens.
+      - id: detect-private-key
+
+      # Prevent committing to main/master directly.
+      - id: no-commit-to-branch
+        args: [--branch=main, --branch=master]
+
+      # Require JSON files to be parseable.
+      - id: check-json
+
+      # Merge conflict markers left in files.
+      - id: check-merge-conflict
+
+  # ── Ruff — linter and formatter ────────────────────────────────────────────
+  # Single hook run replaces isort + flake8 + pyupgrade for speed.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      # Lint: fix auto-fixable violations, fail on remaining ones.
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+      # Format: enforce consistent code style (replaces black).
+      - id: ruff-format
+
+  # ── Mypy — static type checker ─────────────────────────────────────────────
+  # Runs as a local hook so it uses the project's installed dependencies
+  # (sqlalchemy stubs, google-cloud type info, etc.) rather than a fresh venv.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        types: [python]
+        args:
+          - src/
+          - --ignore-missing-imports
+          - --disallow-untyped-defs
+          - --warn-return-any
+          - --show-error-codes
+          - --no-error-summary
+        pass_filenames: false   # mypy works better with explicit paths
+        require_serial: true    # mypy has its own parallelism

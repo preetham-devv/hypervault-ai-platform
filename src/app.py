@@ -9,6 +9,8 @@ Architecture:
   Streamlit (:8501) → httpx → FastAPI (:8080) → AlloyDB / Vertex AI
 """
 
+from typing import Any
+
 import httpx
 import pandas as pd
 import streamlit as st
@@ -91,7 +93,7 @@ def _headers() -> dict[str, str]:
     return {"X-User-Identity": active_user}
 
 
-def _api(method: str, path: str, **kwargs) -> dict:
+def _api(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
     """
     Make an API call and return the parsed JSON response.
 

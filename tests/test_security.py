@@ -73,10 +73,13 @@ def test_rls_context_clears_on_exit(mock_engine):
     with rls.session(identity):
         pass
 
-    # Last execute call must clear the settings
-    last_call_params = conn.execute.call_args_list[-1][0][1]
-    assert last_call_params["agent_id"] == ""
-    assert last_call_params["tenant_id"] == ""
+    # context.py embeds empty strings directly in the SQL via set_config('app.agent_id', '', true)
+    # rather than bind parameters, so we verify the SQL text of the last execute call.
+    assert conn.execute.call_count >= 2, "Expected at least two execute calls (set + clear)"
+    last_sql = str(conn.execute.call_args_list[-1][0][0])
+    assert "set_config" in last_sql, f"Expected set_config in clear SQL, got: {last_sql}"
+    # The clear SQL must pass empty strings for agent_id and tenant_id.
+    assert "''" in last_sql, f"Expected empty-string literals in clear SQL, got: {last_sql}"
 
 
 def test_rls_context_rejects_expired_identity(mock_engine):

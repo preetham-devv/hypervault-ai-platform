@@ -1,0 +1,32 @@
+# ============================================================
+# HyperVault AI Platform — development-only dependencies
+#
+# Install alongside the runtime requirements:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# Or install the package in editable mode with dev extras:
+#   pip install -e ".[dev]"
+# ============================================================
+
+# ── Linting and formatting ──────────────────────────────────────────────────
+ruff==0.9.10
+
+# ── Type checking ───────────────────────────────────────────────────────────
+mypy==1.15.0
+
+# SQLAlchemy type stubs — gives mypy full knowledge of Engine, Connection, etc.
+# The [mypy] extra installs sqlalchemy-stubs and wires up the mypy plugin.
+sqlalchemy[mypy]==2.0.37
+
+# Type stubs for standard library and common packages not yet inline-typed.
+types-python-dateutil
+
+# ── Git hooks ───────────────────────────────────────────────────────────────
+pre-commit==4.2.0
+
+# ── Testing ─────────────────────────────────────────────────────────────────
+# (pytest and pytest-cov are already in requirements.txt for Docker Compose;
+#  listed here so a plain `pip install -r requirements-dev.txt` also works.)
+pytest==8.3.5
+pytest-cov==6.0.0
+pytest-asyncio==0.25.3

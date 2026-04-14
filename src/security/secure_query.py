@@ -3,10 +3,14 @@ Secure Query — executes SQL within an RLS-enforced context.
 The same SELECT * returns different rows depending on who is logged in.
 """
 
+from __future__ import annotations
+
 from typing import Any, Optional
+
 import sqlalchemy
 import structlog
 from sqlalchemy import text
+
 from src.config import get_engine
 from src.security.secure_connection import SecureConnection
 
@@ -22,7 +26,7 @@ class SecureQueryExecutor:
     results to only the rows that user is authorised to see.
     """
 
-    def __init__(self, engine: sqlalchemy.engine.Engine = None):
+    def __init__(self, engine: Optional[sqlalchemy.engine.Engine] = None) -> None:
         """
         Parameters
         ----------
@@ -32,8 +36,12 @@ class SecureQueryExecutor:
         """
         self.engine = engine or get_engine()
 
-    def query(self, sql: str, params: dict = None,
-              user: str = None) -> list[dict[str, Any]]:
+    def query(
+        self,
+        sql: str,
+        params: Optional[dict[str, Any]] = None,
+        user: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
         """
         Run a SELECT query and return results filtered by RLS for *user*.
 
@@ -60,7 +68,12 @@ class SecureQueryExecutor:
         logger.info("Secure query complete", row_count=len(rows), user=user or "system")
         return rows
 
-    def execute(self, sql: str, params: dict = None, user: str = None) -> int:
+    def execute(
+        self,
+        sql: str,
+        params: Optional[dict[str, Any]] = None,
+        user: Optional[str] = None,
+    ) -> int:
         """
         Run a DML statement (INSERT / UPDATE / DELETE) within an RLS context.
 
@@ -86,7 +99,7 @@ class SecureQueryExecutor:
             conn.commit()
         return result.rowcount
 
-    def compare_access(self, sql: str, users: list[str]) -> dict[str, list[dict]]:
+    def compare_access(self, sql: str, users: list[str]) -> dict[str, list[dict[str, Any]]]:
         """
         Run the same SQL as each user and return a per-user result map.
 

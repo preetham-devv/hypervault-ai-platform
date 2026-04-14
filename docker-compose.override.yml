@@ -1,0 +1,65 @@
+# ============================================================
+# HyperVault AI Platform — Docker Compose resource overrides
+#
+# This file is merged automatically by `docker compose up`.
+# It is intentionally left as a lightweight optional layer —
+# uncomment blocks as needed for your local machine.
+#
+# Common reasons to edit this file:
+#   - Limit memory/CPU so Docker doesn't starve your laptop.
+#   - Mount GCP Application Default Credentials for Gemini calls.
+#   - Override ports if 8080/8501 are already in use.
+# ============================================================
+
+services:
+
+  # ── Database ──────────────────────────────────────────────────────────────
+  db:
+    deploy:
+      resources:
+        limits:
+          # 512 MB is plenty for the local seed dataset (~500 rows).
+          # Raise to 1g if you load a large custom dataset.
+          memory: 512m
+          cpus: "0.5"
+
+  # ── FastAPI ───────────────────────────────────────────────────────────────
+  api:
+    deploy:
+      resources:
+        limits:
+          # 1 GB keeps NumPy/pandas comfortable; raise if running heavy queries.
+          memory: 1g
+          cpus: "1.0"
+    # ── GCP credentials (needed for Gemini / Vertex AI calls) ───────────────
+    # Mount your Application Default Credentials into the container so the
+    # google-auth library picks them up automatically.
+    #
+    # Run once on your host:
+    #   gcloud auth application-default login
+    # Then uncomment the volume + environment below:
+    #
+    # volumes:
+    #   - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+    # environment:
+    #   GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+    #   GOOGLE_CLOUD_PROJECT: your-gcp-project-id
+    #   GOOGLE_CLOUD_LOCATION: us-central1
+    #   GOOGLE_GENAI_USE_VERTEXAI: "True"
+
+  # ── Streamlit frontend ────────────────────────────────────────────────────
+  frontend:
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+    # ── GCP credentials (if the frontend makes direct Gemini calls) ──────────
+    # Typically the frontend only calls the FastAPI service, so ADC is not
+    # required here unless you add a direct Gemini integration.
+    #
+    # volumes:
+    #   - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+    # environment:
+    #   GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+    #   GOOGLE_CLOUD_PROJECT: your-gcp-project-id

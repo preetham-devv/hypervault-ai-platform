@@ -3,10 +3,14 @@ Real-time pipeline — AlloyDB data → Gemini → actionable insights.
 Every query runs inside a user's RLS security boundary.
 """
 
+from __future__ import annotations
+
 from typing import Any, Optional
+
 import sqlalchemy
 import structlog
 from sqlalchemy import text
+
 from src.config import get_engine
 from src.reasoning_engine.gemini_client import GeminiClient
 from src.security.secure_connection import SecureConnection
@@ -23,7 +27,7 @@ class RealtimePipeline:
     forwards the result to Gemini for natural-language analysis.
     """
 
-    def __init__(self, engine: sqlalchemy.engine.Engine = None):
+    def __init__(self, engine: Optional[sqlalchemy.engine.Engine] = None) -> None:
         """
         Parameters
         ----------
@@ -34,8 +38,12 @@ class RealtimePipeline:
         self.engine = engine or get_engine()
         self.gemini = GeminiClient()
 
-    def query_and_reason(self, sql: str, question: str,
-                         active_user: str = None) -> dict[str, Any]:
+    def query_and_reason(
+        self,
+        sql: str,
+        question: str,
+        active_user: Optional[str] = None,
+    ) -> dict[str, Any]:
         """
         Execute *sql* within the user's RLS boundary, then ask Gemini *question*.
 
@@ -74,7 +82,7 @@ class RealtimePipeline:
             "user_context": active_user or "system",
         }
 
-    def in_database_reasoning(self, prompt: str, active_user: str = None) -> str:
+    def in_database_reasoning(self, prompt: str, active_user: Optional[str] = None) -> str:
         """
         Run Gemini inference entirely inside AlloyDB via ``google_ml.predict_row()``.
 
@@ -116,7 +124,7 @@ class RealtimePipeline:
             row = result.fetchone()
         return row[0] if row else ""
 
-    def get_department_summary(self, active_user: str = None) -> dict:
+    def get_department_summary(self, active_user: Optional[str] = None) -> dict[str, Any]:
         """
         Aggregate department headcount, average salary, and performance rating,
         then ask Gemini to identify high/low performers and compensation gaps.
@@ -146,7 +154,7 @@ class RealtimePipeline:
         )
         return self.query_and_reason(sql, question, active_user)
 
-    def get_employee_insights(self, active_user: str = None) -> dict:
+    def get_employee_insights(self, active_user: Optional[str] = None) -> dict[str, Any]:
         """
         Fetch the 50 most recent performance reviews and ask Gemini to surface
         top performers, at-risk employees, and recurring feedback patterns.
@@ -175,7 +183,7 @@ class RealtimePipeline:
         return self.query_and_reason(sql, question, active_user)
 
     @staticmethod
-    def _format_data(columns: list[str], rows: list[dict]) -> str:
+    def _format_data(columns: list[str], rows: list[dict[str, Any]]) -> str:
         """
         Render query results as a pipe-delimited text table for Gemini's context.
 
