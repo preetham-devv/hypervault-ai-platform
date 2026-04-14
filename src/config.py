@@ -9,11 +9,15 @@ Connection strategy:
     (useful for local development with a VPN or Cloud SQL Auth Proxy).
 """
 
+import logging
 import os
 from dotenv import load_dotenv
 from google.cloud.alloydb.connector import Connector
 import sqlalchemy
+from sqlalchemy import event
 import pg8000
+
+_logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -102,20 +106,74 @@ def get_engine() -> sqlalchemy.engine.Engine:
     otherwise falls back to a direct TCP URL. Pool is sized conservatively
     (5 + 2 overflow) and recycles connections after 30 min to avoid stale
     sockets on Cloud Run instances that may have been idle.
+
+    Safety measures applied to every engine:
+      - ``pool_pre_ping=True``: issues a ``SELECT 1`` before handing a pooled
+        connection to a caller, discarding dead sockets transparently.
+      - ``checkin`` event listener: resets ``app.active_user`` to an empty
+        string every time a connection is returned to the pool, preventing
+        RLS session variable leakage between requests / users.
     """
-    # Prefer the connector path (IAM-auth, no IP whitelisting required).
-    creator = _alloydb_getconn if Config.ALLOYDB_CONN_NAME else None
-    if creator:
-        return sqlalchemy.create_engine(
-            "postgresql+pg8000://", creator=creator,
-            pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
-        )
-    # Fallback: direct TCP for local dev / VPN environments.
-    return sqlalchemy.create_engine(
-        f"postgresql+pg8000://{Config.ALLOYDB_USER}:{Config.ALLOYDB_PASSWORD}"
-        f"@{Config.ALLOYDB_IP}:5432/{Config.ALLOYDB_DATABASE}",
-        pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
+    _pool_kwargs = dict(
+        pool_size=5,
+        max_overflow=2,
+        pool_timeout=30,
+        pool_recycle=1800,
+        pool_pre_ping=True,      # discard stale connections silently
     )
+
+    # Prefer the connector path (IAM-auth, no IP whitelisting required).
+    if Config.ALLOYDB_CONN_NAME:
+        engine = sqlalchemy.create_engine(
+            "postgresql+pg8000://", creator=_alloydb_getconn, **_pool_kwargs
+        )
+    else:
+        # Fallback: direct TCP for local dev / VPN environments.
+        engine = sqlalchemy.create_engine(
+            f"postgresql+pg8000://{Config.ALLOYDB_USER}:{Config.ALLOYDB_PASSWORD}"
+            f"@{Config.ALLOYDB_IP}:5432/{Config.ALLOYDB_DATABASE}",
+            **_pool_kwargs,
+        )
+
+    @event.listens_for(engine, "checkin")
+    def _reset_rls_context(
+        dbapi_conn: pg8000.dbapi.Connection,
+        connection_record: object,
+    ) -> None:
+        """
+        Second line of defence: clear ``app.active_user`` when a connection
+        is returned to the pool.
+
+        This fires *after* SQLAlchemy has already rolled back any open
+        transaction on the connection, so we start from a clean state.
+        We still commit the SET to avoid leaving an implicit open transaction
+        on pg8000's non-autocommit connection.
+
+        If this reset fails for any reason (e.g. the connection is already
+        broken) the exception is caught and logged so it never prevents the
+        connection from being checked back in.
+        """
+        cursor = dbapi_conn.cursor()
+        try:
+            # SET rather than RESET — safe even if the variable was never set
+            # in this session (RESET raises on unknown custom parameters).
+            cursor.execute("SET app.active_user = ''")
+            dbapi_conn.commit()
+            _logger.debug("pool checkin: app.active_user cleared")
+        except Exception:
+            _logger.warning(
+                "pool checkin: failed to reset app.active_user — "
+                "rolling back to keep connection clean",
+                exc_info=True,
+            )
+            try:
+                dbapi_conn.rollback()
+            except Exception:
+                pass  # Connection is broken; pool will discard it
+        finally:
+            cursor.close()
+
+    return engine
 
 
 def get_raw_connection() -> pg8000.dbapi.Connection:

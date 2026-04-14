@@ -9,21 +9,56 @@ import sqlalchemy
 from sqlalchemy import text
 from src.config import get_engine
 from src.reasoning_engine.gemini_client import GeminiClient
-from src.security.context_switcher import set_user_context
+from src.security.secure_connection import SecureConnection
 
 logger = logging.getLogger(__name__)
 
 
 class RealtimePipeline:
+    """
+    Orchestrates the AlloyDB → Gemini reasoning loop.
+
+    Each public method runs a SQL query under the caller's RLS context
+    (so Gemini only ever sees rows the user is authorised to read), then
+    forwards the result to Gemini for natural-language analysis.
+    """
+
     def __init__(self, engine: sqlalchemy.engine.Engine = None):
+        """
+        Parameters
+        ----------
+        engine:
+            SQLAlchemy engine connected to AlloyDB. If omitted, one is
+            created automatically from environment config.
+        """
         self.engine = engine or get_engine()
         self.gemini = GeminiClient()
 
     def query_and_reason(self, sql: str, question: str,
                          active_user: str = None) -> dict[str, Any]:
-        with self.engine.connect() as conn:
-            if active_user:
-                set_user_context(conn, active_user)
+        """
+        Execute *sql* within the user's RLS boundary, then ask Gemini *question*.
+
+        Parameters
+        ----------
+        sql:
+            Raw SQL to execute against AlloyDB. RLS policies filter rows
+            automatically based on the active user session variable.
+        question:
+            The analytical question passed to Gemini alongside the query results.
+        active_user:
+            Username to set as ``app.active_user`` session variable.
+            If omitted the query runs without an RLS context (system-level access).
+
+        Returns
+        -------
+        dict with keys:
+            ``raw_data`` — list of row dicts returned by the query.
+            ``row_count`` — number of visible rows (reflects RLS filtering).
+            ``insight``   — Gemini's natural-language analysis.
+            ``user_context`` — the effective username used for this query.
+        """
+        with SecureConnection(self.engine, active_user) as conn:
             result = conn.execute(text(sql))
             columns = list(result.keys())
             rows = [dict(zip(columns, row)) for row in result.fetchall()]
@@ -40,7 +75,27 @@ class RealtimePipeline:
         }
 
     def in_database_reasoning(self, prompt: str, active_user: str = None) -> str:
-        """Run Gemini inference entirely inside AlloyDB. Data never leaves the DB."""
+        """
+        Run Gemini inference entirely inside AlloyDB via ``google_ml.predict_row()``.
+
+        Unlike ``query_and_reason()``, the model call never leaves the database —
+        data is passed directly to Gemini within the same SQL transaction.
+        This eliminates a Python ↔ Vertex AI network round-trip.
+
+        Parameters
+        ----------
+        prompt:
+            The instruction or question for Gemini.
+        active_user:
+            RLS context username. Applied before the predict call so the model
+            only sees authorised rows if the prompt references table data.
+
+        Returns
+        -------
+        str
+            The raw text response from Gemini, or an empty string if no row
+            was returned.
+        """
         predict_sql = text("""
             SELECT google_ml.predict_row(
                 model_id => 'gemini-2.0-flash',
@@ -56,14 +111,26 @@ class RealtimePipeline:
                 )
             ) AS response;
         """)
-        with self.engine.connect() as conn:
-            if active_user:
-                set_user_context(conn, active_user)
+        with SecureConnection(self.engine, active_user) as conn:
             result = conn.execute(predict_sql, {"prompt": prompt})
             row = result.fetchone()
         return row[0] if row else ""
 
     def get_department_summary(self, active_user: str = None) -> dict:
+        """
+        Aggregate department headcount, average salary, and performance rating,
+        then ask Gemini to identify high/low performers and compensation gaps.
+
+        Parameters
+        ----------
+        active_user:
+            RLS context — managers see only their department; admins see all.
+
+        Returns
+        -------
+        dict
+            Same shape as ``query_and_reason()``.
+        """
         sql = """
             SELECT e.department, COUNT(*) AS headcount,
                    ROUND(AVG(e.salary)::numeric, 2) AS avg_salary,
@@ -80,6 +147,20 @@ class RealtimePipeline:
         return self.query_and_reason(sql, question, active_user)
 
     def get_employee_insights(self, active_user: str = None) -> dict:
+        """
+        Fetch the 50 most recent performance reviews and ask Gemini to surface
+        top performers, at-risk employees, and recurring feedback patterns.
+
+        Parameters
+        ----------
+        active_user:
+            RLS context — employees see only their own record.
+
+        Returns
+        -------
+        dict
+            Same shape as ``query_and_reason()``.
+        """
         sql = """
             SELECT e.name, e.department, e.salary, pr.rating,
                    pr.review_text, pr.review_date
@@ -95,6 +176,24 @@ class RealtimePipeline:
 
     @staticmethod
     def _format_data(columns: list[str], rows: list[dict]) -> str:
+        """
+        Render query results as a pipe-delimited text table for Gemini's context.
+
+        Caps at 100 rows to keep token usage bounded; appends a truncation
+        notice when rows were dropped.
+
+        Parameters
+        ----------
+        columns:
+            Ordered list of column names.
+        rows:
+            List of row dicts from the database query.
+
+        Returns
+        -------
+        str
+            Human-readable table, or ``'No data returned.'`` for empty results.
+        """
         if not rows:
             return "No data returned."
         header = " | ".join(columns)
